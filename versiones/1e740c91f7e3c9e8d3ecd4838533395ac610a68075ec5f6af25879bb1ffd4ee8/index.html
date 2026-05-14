@@ -340,8 +340,9 @@
         'primerAcceso.txtSesion': txtSesion,
       });
 
-      // Paso 2: calcular hash del txt ya grabado
-      const hashTxtSesion = await sha256Text(txtSesion);
+      // En registrarAcceso(), antes del sha256Text:
+      const txtNormalizado = txtSesion.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const hashTxtSesion = await sha256Text(txtNormalizado);
 
       // Paso 3: grabar metadatos completos incluyendo hashTxtSesion
       await db.collection('documentos').doc(tok).update({
