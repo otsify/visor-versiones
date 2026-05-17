@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OTSify ® — Visor de Documento Certificado</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <style>
+    :root {
+      --bg:      #0a0e17; --surface: #111827; --border: #1e2d45;
+      --accent:  #f7931a; --accent2: #3b82f6;
+      --ok:      #22c55e; --warn:    #f59e0b; --err:    #ef4444;
+      --text:    #e2e8f0; --muted:   #64748b;
+      --mono:    'IBM Plex Mono', monospace;
+      --sans:    'IBM Plex Sans', sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+
+    .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 18px 32px; display: flex; align-items: center; gap: 14px; }
+    .header-title { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0.08em; }
+    .header-title span { color: var(--accent); }
+
+    #pantalla-carga { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; gap: 20px; }
+    .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .carga-texto { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+    .carga-paso  { font-family: var(--mono); font-size: 11px; color: var(--muted); opacity: 0.6; }
+
+    #pantalla-error { display: none; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; gap: 16px; padding: 32px; text-align: center; }
+    .error-icon   { font-size: 48px; }
+    .error-titulo { font-family: var(--mono); font-size: 16px; color: var(--err); font-weight: 600; }
+    .error-desc   { font-size: 14px; color: var(--muted); max-width: 480px; line-height: 1.6; white-space: pre-wrap; }
+    .btn-reintentar { margin-top: 8px; padding: 10px 24px; background: var(--accent2); color: #fff; border: none; border-radius: 6px; font-family: var(--mono); font-size: 13px; cursor: pointer; transition: opacity 0.2s; }
+    .btn-reintentar:hover { opacity: 0.85; }
+
+    #pantalla-ok { display: none; flex-direction: column; gap: 0; }
+
+    .visor-wrapper { background: #1a1a2e; border-bottom: 1px solid var(--border); padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .visor-label  { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.1em; align-self: flex-start; }
+    .visor-nombre { font-family: var(--mono); font-size: 13px; color: var(--accent); align-self: flex-start; }
+    #pdf-frame    { width: 100%; max-width: 900px; height: 70vh; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+
+    .cert-wrapper { padding: 32px 24px 48px; max-width: 900px; margin: 0 auto; width: 100%; }
+    .cert-header  { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 28px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
+    .cert-sello   { flex-shrink: 0; width: 52px; height: 52px; border: 2px solid var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+    .cert-header-texto h2 { font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--accent); letter-spacing: 0.05em; margin-bottom: 4px; }
+    .cert-header-texto p  { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+    .cert-seccion { margin-bottom: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .cert-seccion-titulo { padding: 10px 16px; background: rgba(247,147,26,0.06); border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 10px; font-weight: 600; color: var(--accent); letter-spacing: 0.12em; }
+
+    /* Sección 05 — azul */
+    .cert-seccion.sesion { border-color: rgba(59,130,246,0.35); }
+    .cert-seccion.sesion .cert-seccion-titulo { background: rgba(59,130,246,0.08); color: var(--accent2); }
+
+    .cert-fila { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .cert-fila:last-child { border-bottom: none; }
+    .cert-clave { font-family: var(--mono); font-size: 11px; color: var(--muted); min-width: 180px; flex-shrink: 0; padding-top: 1px; }
+    .cert-valor { font-family: var(--mono); font-size: 12px; color: var(--text); word-break: break-word; line-height: 1.6; }
+    .cert-valor.hash  { color: var(--accent2); font-size: 11px; word-break: break-all; }
+    .cert-valor.hash2 { color: #a78bfa; font-size: 11px; word-break: break-all; }
+    .cert-valor.muted { color: var(--muted); font-size: 11px; line-height: 1.7; }
+
+    .verificadores { display: flex; flex-direction: column; gap: 6px; }
+    .verificadores a { font-family: var(--mono); font-size: 11px; color: var(--accent2); text-decoration: none; transition: opacity 0.2s; }
+    .verificadores a:hover { opacity: 0.7; text-decoration: underline; }
+
+    /* Botones de descarga */
+    .btn-descargar {
+      display: inline-block; padding: 5px 14px;
+      background: var(--accent2); color: #fff;
+      border: none; border-radius: 5px;
+      font-family: var(--mono); font-size: 11px; font-weight: 500;
+      text-decoration: none; cursor: pointer; transition: opacity 0.2s;
+      letter-spacing: 0.03em; white-space: nowrap;
+    }
+    .btn-descargar:hover { opacity: 0.8; }
+
+    /* Bloque de archivo descargable en sección 05 */
+    .archivo-bloque {
+      background: rgba(59,130,246,0.04);
+      border: 1px solid rgba(59,130,246,0.15);
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .archivo-bloque:last-child { margin-bottom: 0; }
+    .archivo-nombre {
+      font-family: var(--mono); font-size: 12px; font-weight: 600;
+      color: var(--accent2); margin-bottom: 6px;
+    }
+    .archivo-hash-label { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-bottom: 2px; }
+    .archivo-hash-valor { font-family: var(--mono); font-size: 11px; color: #a78bfa; word-break: break-all; margin-bottom: 8px; line-height: 1.5; }
+    .archivo-acciones { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+    .archivo-desc { font-family: var(--mono); font-size: 10px; color: var(--muted); line-height: 1.6; margin-bottom: 8px; }
+
+    /* Aviso de verificación */
+    .cert-aviso-verificacion {
+      margin-bottom: 16px; padding: 14px 16px;
+      background: rgba(59,130,246,0.06);
+      border: 1px solid rgba(59,130,246,0.25);
+      border-radius: 8px;
+      font-size: 12px; color: var(--muted); line-height: 1.7;
+    }
+    .cert-aviso-verificacion strong { color: var(--text); font-weight: 600; }
+
+    .cert-aviso     { margin-top: 24px; padding: 16px; background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.2); border-radius: 8px; font-size: 12px; color: var(--muted); line-height: 1.7; }
+    .cert-aviso strong { color: var(--text); font-weight: 500; }
+    .cert-aviso-vpn { margin-top: 12px; padding: 16px; background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2); border-radius: 8px; font-size: 12px; color: var(--muted); line-height: 1.7; }
+    .cert-aviso-vpn strong { color: var(--warn); font-weight: 500; }
+
+    .cert-footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .cert-footer-brand { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+    .cert-footer-brand span { color: var(--accent); }
+    .cert-footer-nota { font-family: var(--mono); font-size: 10px; color: var(--muted); opacity: 0.6; text-align: right; }
+
+    .reg-mark { font-size: 0.65em; vertical-align: 0.15em; line-height: 1; }
+
+    @media (max-width: 600px) {
+      .cert-fila { flex-direction: column; gap: 4px; }
+      .cert-clave { min-width: unset; }
+      .header { padding: 14px 16px; }
+      .visor-wrapper { padding: 16px; }
+      .cert-wrapper { padding: 20px 16px 40px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-title"><span>OTSify</span><sup class="reg-mark">®</sup></div>
+  </div>
+
+  <div id="pantalla-carga">
+    <div class="spinner"></div>
+    <div class="carga-texto">Verificando documento...</div>
+    <div class="carga-paso" id="carga-paso">Leyendo token</div>
+  </div>
+
+  <div id="pantalla-error">
+    <div class="error-icon">⚠️</div>
+    <div class="error-titulo">Error en la descarga</div>
+    <div class="error-desc" id="error-desc">No fue posible verificar la autenticidad del documento.</div>
+    <button class="btn-reintentar" onclick="reintentar()">↺ Reintentar descarga</button>
+  </div>
+
+  <div id="pantalla-ok">
+
+    <div class="visor-wrapper">
+      <div class="visor-label">Documento original</div>
+      <div class="visor-nombre" id="visor-nombre-archivo">—</div>
+      <iframe id="pdf-frame" src="" frameborder="0" allowfullscreen></iframe>
+    </div>
+
+    <div class="cert-wrapper">
+
+      <div class="cert-header">
+        <div class="cert-sello">🔐</div>
+        <div class="cert-header-texto">
+          <h2>Certificado de Autenticidad</h2>
+          <p>Generado por el browser de este dispositivo en el momento exacto del acceso.<br>
+          Este certificado no está bajo el control del remitente ni del sistema OTSify<sup class="reg-mark">®</sup>.</p>
+        </div>
+      </div>
+
+      <!-- 01 — DOCUMENTO -->
+      <div class="cert-seccion">
+        <div class="cert-seccion-titulo">01 — Identificación del documento</div>
+        <div class="cert-fila"><div class="cert-clave">Nombre del archivo</div><div class="cert-valor" id="c-nombre-archivo">—</div></div>
+        <div class="cert-fila" id="fila-texto-pie" style="display:none"><div class="cert-clave">Mensaje del remitente</div><div class="cert-valor" id="c-texto-pie">—</div></div>
+        <div class="cert-fila"><div class="cert-clave">Hash SHA-256 del archivo</div><div class="cert-valor hash" id="c-hash-archivo">—</div></div>
+        <div class="cert-fila">
+          <div class="cert-clave">Verificar el hash en</div>
+          <div class="cert-valor">
+            <div class="verificadores">
+              <a href="https://emn178.github.io/online-tools/sha256_checksum.html" target="_blank" rel="noopener">↗ emn178.github.io — SHA-256 Checksum</a>
+              <a href="https://hash.online-convert.com/sha256-generator" target="_blank" rel="noopener">↗ hash.online-convert.com — SHA-256 Generator</a>
+              <a href="https://gchq.github.io/CyberChef/#recipe=SHA2('256',64,160)" target="_blank" rel="noopener">↗ gchq.github.io — CyberChef SHA-256</a>
+            </div>
+          </div>
+        </div>
+        <div class="cert-fila"><div class="cert-clave">Descargar documento</div><div class="cert-valor"><a id="btn-descargar-archivo" class="btn-descargar" href="#" target="_blank" rel="noopener">Descargar aquí</a></div></div>
+      </div>
+
+      <!-- 02 — DATOS DEL ENVÍO -->
+      <div class="cert-seccion">
+        <div class="cert-seccion-titulo">02 — Datos del envío</div>
+        <div class="cert-fila"><div class="cert-clave">Destinatario</div><div class="cert-valor" id="c-dest-nombre">—</div></div>
+        <div class="cert-fila"><div class="cert-clave">Medio de envío</div><div class="cert-valor" id="c-dest-medio">—</div></div>
+        <div class="cert-fila"><div class="cert-clave">Contacto</div><div class="cert-valor" id="c-dest-contacto">—</div></div>
+        <div class="cert-fila"><div class="cert-clave">Fecha y hora de envío</div><div class="cert-valor" id="c-dest-fecha">—</div></div>
+      </div>
+
+      <!-- 03 — INTEGRIDAD DEL VISOR -->
+      <div class="cert-seccion">
+        <div class="cert-seccion-titulo">03 — Integridad del visor web</div>
+        <div class="cert-fila"><div class="cert-clave">Hash SHA-256 del visor</div><div class="cert-valor hash" id="c-hash-visor">Calculando…</div></div>
+        <div class="cert-fila"><div class="cert-clave">Calculado por</div><div class="cert-valor">Browser de este dispositivo — actor neutral</div></div>
+        <div class="cert-fila"><div class="cert-clave">Momento del cálculo</div><div class="cert-valor" id="c-hash-visor-ts">—</div></div>
+        <div class="cert-fila">
+          <div class="cert-clave">Verificar el hash en</div>
+          <div class="cert-valor">
+            <div class="verificadores">
+              <a href="https://emn178.github.io/online-tools/sha256_checksum.html" target="_blank" rel="noopener">↗ emn178.github.io — SHA-256 Checksum</a>
+              <a href="https://hash.online-convert.com/sha256-generator" target="_blank" rel="noopener">↗ hash.online-convert.com — SHA-256 Generator</a>
+              <a href="https://gchq.github.io/CyberChef/#recipe=SHA2('256',64,160)" target="_blank" rel="noopener">↗ gchq.github.io — CyberChef SHA-256</a>
+            </div>
+          </div>
+        </div>
+        <div class="cert-fila"><div class="cert-clave">Descargar index.html</div><div class="cert-valor"><a class="btn-descargar" href="https://immutabletruth-9d40c.web.app/index.html" download="index.html" rel="noopener">Descargar aquí</a></div></div>
+      </div>
+
+      <!-- 04 — METADATOS DEL PRIMER ACCESO -->
+      <div class="cert-seccion">
+        <div class="cert-seccion-titulo">04 — Metadatos del primer acceso</div>
+        <div class="cert-fila"><div class="cert-clave">Timestamp de acceso</div><div class="cert-valor" id="c-acceso-ts">—</div></div>
+        <div class="cert-fila"><div class="cert-clave">IP registrada</div><div class="cert-valor" id="c-acceso-ip">—</div></div>
+        <div class="cert-fila"><div class="cert-clave">Geolocalización</div><div class="cert-valor" id="c-acceso-geo">—</div></div>
+        <div class="cert-fila"><div class="cert-clave">User-Agent</div><div class="cert-valor" id="c-acceso-ua">—</div></div>
+        <div class="cert-fila"><div class="cert-clave">Hash SHA-256 del visor</div><div class="cert-valor hash" id="c-acceso-hash-visor">—</div></div>
+        <div class="cert-fila"><div class="cert-clave">Recabado por</div><div class="cert-valor">Browser de este dispositivo — actor neutral</div></div>
+      </div>
+
+      <!-- 05 — SELLO DE SESIÓN -->
+      <div class="cert-seccion sesion">
+        <div class="cert-seccion-titulo">05 — Sello de sesión · Verificación de integridad</div>
+
+        <!-- Aviso explicativo -->
+        <div class="cert-fila">
+          <div class="cert-clave">Qué es esto</div>
+          <div class="cert-valor muted">
+            Esta sección le permite verificar de forma completamente independiente que los datos
+            que el remitente tiene registrados son exactamente los mismos que usted tiene ante sus ojos.
+            Puede descargar los tres archivos a continuación y calcular sus hashes con cualquier
+            herramienta online — si coinciden con los valores aquí registrados, los datos son auténticos
+            y no fueron alterados. El txt de sesión además será sellado matematicamente
+            por la app del remitente, haciendo el registro matemáticamente irrefutable.
+          </div>
+        </div>
+
+        <!-- Tres archivos descargables -->
+        <div class="cert-fila" style="flex-direction: column; gap: 12px;">
+          <div class="cert-clave" style="padding-top:0;">Archivos para verificación independiente</div>
+
+          <!-- Archivo 1: Documento PDF -->
+          <div class="archivo-bloque">
+            <div class="archivo-nombre">📄 <span id="s-nombre-pdf">documento.pdf</span></div>
+            <div class="archivo-desc">El documento original tal como fue enviado por el remitente. Calculá su hash SHA-256 y compará con el valor de la Sección 01.</div>
+            <div class="archivo-hash-label">Hash SHA-256:</div>
+            <div class="archivo-hash-valor" id="s-hash-pdf">—</div>
+            <div class="archivo-acciones">
+              <a id="s-btn-pdf" class="btn-descargar" href="#" target="_blank" rel="noopener">⬇ Descargar documento</a>
+              <a href="https://emn178.github.io/online-tools/sha256_checksum.html" target="_blank" rel="noopener" class="btn-descargar" style="background:var(--muted);">🔍 Verificar hash</a>
+            </div>
+          </div>
+
+          <!-- Archivo 2: index.html -->
+          <div class="archivo-bloque">
+            <div class="archivo-nombre">🌐 index.html — visor web</div>
+            <div class="archivo-desc">El código exacto que ejecutó su browser al abrir este certificado. Calculá su hash SHA-256 y compará con el valor de la Sección 03.</div>
+            <div class="archivo-hash-label">Hash SHA-256:</div>
+            <div class="archivo-hash-valor" id="s-hash-visor">—</div>
+            <div class="archivo-acciones">
+              <a class="btn-descargar" href="https://immutabletruth-9d40c.web.app/index.html" download="index.html" rel="noopener">⬇ Descargar index.html</a>
+              <a href="https://emn178.github.io/online-tools/sha256_checksum.html" target="_blank" rel="noopener" class="btn-descargar" style="background:var(--muted);">🔍 Verificar hash</a>
+            </div>
+          </div>
+
+          <!-- Archivo 3: txt de sesión -->
+          <div class="archivo-bloque">
+            <div class="archivo-nombre" id="s-titulo-sesion">📋 txt de sesión de este primer acceso — huella de esta sesión</div>
+            <div class="archivo-desc">
+              Documento generado por su propio browser en este momento. Contiene todos los datos
+              de esta sesión combinados en un string canónico. Su hash SHA-256 será sellado matematicamente por la app del remitente — constituyendo prueba matemática de que estos
+              datos existían en este momento exacto.
+            </div>
+            <div class="archivo-hash-label">Hash SHA-256 del txt de sesión:</div>
+            <div class="archivo-hash-valor" id="s-hash-sesion">Calculando…</div>
+            <div class="archivo-acciones">
+              <a id="s-btn-sesion" class="btn-descargar" href="#" download="sesion.txt">⬇ Descargar txt de sesión</a>
+              <a href="https://emn178.github.io/online-tools/sha256_checksum.html" target="_blank" rel="noopener" class="btn-descargar" style="background:var(--muted);">🔍 Verificar hash</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Datos del sello de sesión -->
+        <div class="cert-fila"><div class="cert-clave">Token del documento</div><div class="cert-valor hash" id="c-sesion-token">—</div></div>
+        <div class="cert-fila"><div class="cert-clave">URL de acceso</div><div class="cert-valor hash" id="c-sesion-url">—</div></div>
+        <div class="cert-fila"><div class="cert-clave" id="s-label-ts-sesion">Timestamp de sesión de este primer acceso</div><div class="cert-valor" id="c-sesion-ts">—</div></div>
+<div class="cert-fila" id="fila-ts-actual" style="display:none"><div class="cert-clave">Timestamp de la sesión actual</div><div class="cert-valor" id="c-sesion-ts-actual">—</div></div>
+      </div>
+
+      <div class="cert-aviso">
+        <strong>Registro de metadatos técnicos:</strong> El acceso a este documento ha quedado registrado en una base de datos descentralizada con sellado criptográfico matemático.
+      </div>
+
+      <div class="cert-aviso-vpn">
+        <strong>Nota sobre inconsistencias técnicas:</strong> El uso de VPN, proxies u otras herramientas de redirección de tráfico será consignado objetivamente en un eventual informe como parte de la descripción técnica del acceso. Su presencia no invalida el registro — es en sí misma un dato técnico relevante.
+      </div>
+
+      <div class="cert-footer">
+        <div class="cert-footer-brand"><span>OTSify</span><sup class="reg-mark">®</sup> · Bitcoin-Powered Proof</div>
+        <div class="cert-footer-nota">Certificado generado localmente · No transmitido por OTSify<sup class="reg-mark">®</sup></div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+
+
+
+    const firebaseConfig = {
+      apiKey:            "AIzaSyCUtUFHFh_5w53ozsjfSOwad_ZtRZVMI6U",
+      authDomain:        "immutabletruth-9d40c.firebaseapp.com",
+      projectId:         "immutabletruth-9d40c",
+      storageBucket:     "immutabletruth-9d40c.firebasestorage.app",
+      messagingSenderId: "587755273492",
+      appId:             "1:587755273492:web:0e7f44f3158384182a5601"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    let token = null, metadatos = null, intentos = 0;
+    const MAX_INTENTOS = 3;
+
+    function mostrarCarga(paso) {
+      document.getElementById('pantalla-carga').style.display = 'flex';
+      document.getElementById('pantalla-error').style.display = 'none';
+      document.getElementById('pantalla-ok').style.display    = 'none';
+      if (paso) document.getElementById('carga-paso').textContent = paso;
+    }
+    function mostrarError(desc) {
+      document.getElementById('pantalla-carga').style.display = 'none';
+      document.getElementById('pantalla-error').style.display = 'flex';
+      document.getElementById('pantalla-ok').style.display    = 'none';
+      if (desc) document.getElementById('error-desc').textContent = desc;
+    }
+    function mostrarOk() {
+      document.getElementById('pantalla-carga').style.display = 'none';
+      document.getElementById('pantalla-error').style.display = 'none';
+      document.getElementById('pantalla-ok').style.display    = 'flex';
+    }
+    function set(id, val) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val || '—';
+    }
+
+    async function sha256Text(text) {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+    }
+
+    function utcAhora() {
+      return new Date().toISOString().replace('T',' ').slice(0,19) + ' UTC';
+    }
+    function leerToken() {
+      return new URLSearchParams(window.location.search).get('token');
+    }
+    async function consultarFirestore(tok) {
+      const snap = await db.collection('documentos').doc(tok).get();
+      if (!snap.exists) throw new Error('Documento no encontrado.');
+      return snap.data();
+    }
+    function extraerFileId(driveUrl) {
+      const match = driveUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if (!match) throw new Error('URL de Drive inválida.');
+      return match[1];
+    }
+    async function calcularHashVisor() {
+      const resp = await fetch('/index.html', { cache: 'no-store' });
+      if (!resp.ok) throw new Error('No se pudo descargar el visor.');
+      return sha256Text(await resp.text());
+    }
+    async function obtenerIP() {
+      try {
+        const resp = await fetch('https://ipapi.co/json/');
+        const data = await resp.json();
+        return {
+          ip:           data.ip           || 'no disponible',
+          localizacion: `${data.city||''}, ${data.country_name||''}`.trim().replace(/^,\s*/,'')
+        };
+      } catch { return { ip: 'no disponible', localizacion: 'no disponible' }; }
+    }
+
+    // ── Construye el txt de sesión canónico ──────────────────────────────
+    function construirTxtSesion({ tok, urlAcceso, fileId, nombreArchivo, hashArchivo, hashVisor, tsAcceso, ip, localizacion, userAgent }) {
+      return (
+        'SELLO DE SESIÓN\n' +
+        '════════════════════════════════════════════════\n\n' +
+        'Este documento es la huella unívoca de la experiencia\n' +
+        'completa del destinatario al momento del acceso.\n' +
+        'Cualquier alteración de cualquiera de estos campos\n' +
+        'produce un hash SHA-256 completamente diferente.\n\n' +
+        '────────────────────────────────────────────────\n' +
+        'Token del documento:         ' + tok           + '\n' +
+        'URL de acceso:               ' + urlAcceso     + '\n' +
+        'URL de descarga:             ' + `https://drive.google.com/uc?export=download&id=${fileId}` + '\n' +
+        'Nombre del archivo:          ' + nombreArchivo + '\n' +
+        'Hash SHA-256 del archivo:    ' + hashArchivo   + '\n' +
+        'Hash SHA-256 del visor:      ' + hashVisor     + '\n' +
+        'Timestamp de sesión (UTC):   ' + tsAcceso      + '\n' +
+        'IP del destinatario:         ' + ip            + '\n' +
+        'Geolocalización:             ' + localizacion  + '\n' +
+        'User-Agent:                  ' + userAgent     + '\n' +
+        '────────────────────────────────────────────────\n\n' +
+        'Generado por: browser del destinatario — actor neutral\n'
+      );
+    }
+
+    // ── Genera link de descarga de un Blob de texto ──────────────────────
+    function generarLinkDescarga(texto, nombreArchivo) {
+      const blob = new Blob([texto], { type: 'text/plain; charset=utf-8' });
+      const url  = URL.createObjectURL(blob);
+      return url;
+    }
+
+    // ── Primer acceso: graba txtSesion → calcula hash → graba metadatos ──
+    async function registrarAcceso(tok, { nombreArchivo, hashArchivo, hashVisor, tsAcceso, ip, localizacion, urlAcceso, fileId }) {
+const txtSesion = construirTxtSesion({
+  tok, urlAcceso, fileId, nombreArchivo, hashArchivo, hashVisor,
+  tsAcceso, ip, localizacion, userAgent: navigator.userAgent,
+});
+
+      // Paso 1: grabar el txt de sesión
+      await db.collection('documentos').doc(tok).update({
+        'primerAcceso.txtSesion': txtSesion,
+      });
+
+      // Paso 2: calcular hash del txt ya grabado (normalizado)
+      const txtNormalizado  = txtSesion.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const hashTxtSesion   = await sha256Text(txtNormalizado);
+
+      // Paso 3: grabar metadatos completos + hashTxtSesion
+      await db.collection('documentos').doc(tok).update({
+        primerAcceso: {
+          timestamp: tsAcceso,
+          userAgent:    navigator.userAgent,
+          ip:           ip          || 'no disponible',
+          localizacion: localizacion || 'no disponible',
+          hashVisor,
+          txtSesion,
+          hashTxtSesion,
+        }
+      });
+
+      return { txtSesion, hashTxtSesion };
+    }
+
+    async function poblarCertificado(datos, hashVisor, ipData, tsAcceso, fileId, txtSesion, hashTxtSesion) {
+      const m = datos;
+      const urlAcceso = window.location.href;
+
+      // Sección 01
+      set('visor-nombre-archivo', m.nombreArchivo);
+      set('c-nombre-archivo',     m.nombreArchivo);
+      if (m.textoPie) { set('c-texto-pie', m.textoPie); document.getElementById('fila-texto-pie').style.display = 'flex'; }
+      const hashArchivo = m.hashArchivo || (m.primerAcceso && m.primerAcceso.hashArchivo) || null;
+      set('c-hash-archivo', hashArchivo || 'no disponible');
+      const btnA = document.getElementById('btn-descargar-archivo');
+      const urlDrive = `https://drive.google.com/uc?export=download&id=${fileId}`;
+      if (btnA) btnA.href = urlDrive;
+
+      // Sección 02
+      if (m.destinatario) {
+        set('c-dest-nombre',   m.destinatario.nombre     || 'no especificado');
+        set('c-dest-medio',    m.destinatario.medio      || 'no especificado');
+        set('c-dest-contacto', m.destinatario.contacto   || 'no especificado');
+        set('c-dest-fecha',    m.destinatario.fechaEnvio || 'no especificado');
+      } else {
+        ['c-dest-nombre','c-dest-medio','c-dest-contacto','c-dest-fecha'].forEach(id => set(id,'no especificado'));
+      }
+
+      // Sección 03
+      set('c-hash-visor',    hashVisor);
+      set('c-hash-visor-ts', tsAcceso);
+
+// Sección 04
+const tsReal = (m.primerAcceso && m.primerAcceso.timestamp) ? m.primerAcceso.timestamp : tsAcceso;
+set('c-acceso-ts',         tsReal);
+set('c-acceso-ip',         (m.primerAcceso && m.primerAcceso.ip) ? m.primerAcceso.ip : ipData.ip);
+set('c-acceso-geo',        (m.primerAcceso && m.primerAcceso.localizacion) ? m.primerAcceso.localizacion : ipData.localizacion);
+set('c-acceso-ua',         (m.primerAcceso && m.primerAcceso.userAgent) ? m.primerAcceso.userAgent : navigator.userAgent);
+set('c-acceso-hash-visor', (m.primerAcceso && m.primerAcceso.hashVisor) ? m.primerAcceso.hashVisor : hashVisor);
+
+      // Sección 05 — archivos descargables
+      // PDF
+      set('s-nombre-pdf',  m.nombreArchivo);
+      set('s-hash-pdf',    hashArchivo || 'no disponible');
+      const btnPdf = document.getElementById('s-btn-pdf');
+      if (btnPdf) btnPdf.href = urlDrive;
+
+      // index.html
+      set('s-hash-visor', hashVisor);
+
+      // txt de sesión — Blob descargable
+if (txtSesion) {
+  if (!hashTxtSesion) {
+    const txtNormalizado = txtSesion.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    hashTxtSesion = await sha256Text(txtNormalizado);
+  }
+  set('s-hash-sesion', hashTxtSesion);
+  const blobUrl = generarLinkDescarga(txtSesion, 'sesion.txt');
+  const btnSesion = document.getElementById('s-btn-sesion');
+  if (btnSesion) btnSesion.href = blobUrl;
+  set('c-sesion-txt-estado', 'Grabado y a disposición');
+} else {
+  set('s-hash-sesion',       'no disponible');
+  set('c-sesion-txt-estado', 'No disponible');
+}
+
+      // Datos del sello
+set('c-sesion-token', token);
+set('c-sesion-url',   urlAcceso);
+
+// DESPUÉS
+const esPreview = new URLSearchParams(window.location.search).has('preview');
+const esPrimerAcceso = !m.primerAcceso || !m.primerAcceso.timestamp;
+
+if (esPrimerAcceso || esPreview) {
+  document.getElementById('s-titulo-sesion').textContent = '📋 txt de sesión de este primer acceso — huella de esta sesión';
+  document.getElementById('s-label-ts-sesion').textContent = 'Timestamp de sesión de este primer acceso';
+  set('c-sesion-ts', esPrimerAcceso ? tsAcceso : m.primerAcceso.timestamp);
+  document.getElementById('fila-ts-actual').style.display = 'none';
+} else {
+  document.getElementById('s-titulo-sesion').textContent = '📋 txt de sesión del primer acceso — huella de la sesión';
+  document.getElementById('s-label-ts-sesion').textContent = 'Timestamp de sesión del primer acceso';
+  set('c-sesion-ts', m.primerAcceso.timestamp);
+  document.getElementById('fila-ts-actual').style.display = 'flex';
+  set('c-sesion-ts-actual', tsAcceso);
+}
+
+      // Frame PDF
+      document.getElementById('pdf-frame').src = `https://drive.google.com/file/d/${fileId}/preview`;
+    }
+
+    async function iniciar() {
+      mostrarCarga('Leyendo token…');
+      token = leerToken();
+      if (!token) { mostrarError('No se encontró un token válido en la URL.'); return; }
+
+mostrarCarga('Consultando registro…');
+try { metadatos = await consultarFirestore(token); }
+catch (e) {
+  mostrarError(
+    'No se pudo conectar con el servidor.\n\n' +
+    'Si usás Brave, uBlock, AdBlock u otro bloqueador de anuncios, ' +
+    'desactivalo para esta página y recargá.\n\n' +
+    'En Brave: hacé clic en el ícono del león 🦁 en la barra de direcciones ' +
+    'y desactivá "Shields" para este sitio.\n\n' +
+    'Error técnico: ' + e.message
+  );
+  return;
+}
+
+      mostrarCarga('Preparando documento…');
+      let fileId;
+      try { fileId = extraerFileId(metadatos.driveUrl); }
+      catch (e) { mostrarError('URL de Drive inválida. ' + e.message); return; }
+
+      mostrarCarga('Calculando hash del visor…');
+      let hashVisor = 'no disponible';
+      try { hashVisor = await calcularHashVisor(); }
+      catch (e) { console.warn('No se pudo calcular el hash del visor:', e); }
+
+      mostrarCarga('Obteniendo IP…');
+      const ipData   = await obtenerIP();
+      const tsAcceso = utcAhora();
+      const urlAcceso = window.location.href;
+
+      let txtSesion = null, hashTxtSesion = null;
+
+      if (!metadatos.primerAcceso) {
+        mostrarCarga('Generando sello de sesión…');
+        try {
+          const r = await registrarAcceso(token, {
+            nombreArchivo: metadatos.nombreArchivo,
+            hashArchivo:   metadatos.hashArchivo || '',
+            hashVisor,
+            tsAcceso,
+            ip:            ipData.ip,
+            localizacion:  ipData.localizacion,
+            urlAcceso,
+            fileId,
+          });
+          txtSesion     = r.txtSesion;
+          hashTxtSesion = r.hashTxtSesion;
+        } catch (e) { console.warn('registrarAcceso:', e.message); }
+      } else {
+        txtSesion     = metadatos.primerAcceso.txtSesion     || null;
+        hashTxtSesion = metadatos.primerAcceso.hashTxtSesion || null;
+      }
+      await poblarCertificado(metadatos, hashVisor, ipData, tsAcceso, fileId, txtSesion, hashTxtSesion);
+      mostrarOk();
+    }
+
+    function reintentar() {
+      intentos++;
+      if (intentos >= MAX_INTENTOS) {
+        document.querySelector('.btn-reintentar').disabled = true;
+        document.querySelector('.btn-reintentar').textContent = 'Límite de reintentos alcanzado';
+        return;
+      }
+      iniciar();
+    }
+
+    iniciar();
+  </script>
+</body>
+</html>
